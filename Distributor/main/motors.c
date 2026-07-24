@@ -20,7 +20,6 @@
 typedef enum {
 	NONE,
 	PID,
-	SMALL_ROTATE,
 	FORWARD,
 } MoveType;
 
@@ -96,15 +95,8 @@ bool inForwardRange(const int angle){
 	return false;
 }
 
-bool inSRotateRange(const int angle){
-	if (!inForwardRange(angle) && angle <= SMALL_ROT_RANGE && angle >= -SMALL_ROT_RANGE){
-		return true;
-	}
-	return false;
-}
-
 bool inPIDRange(const int angle){
-	if (angle > SMALL_ROT_RANGE || angle < -SMALL_ROT_RANGE){
+	if (!inForwardRange(angle)){
 		return true;
 	}
 	return false;
@@ -112,9 +104,6 @@ bool inPIDRange(const int angle){
 MoveType SetMoveType(const int angle, MoveType prevType){
     if (inForwardRange(angle)){
 		return FORWARD;
-	}
-	if (inSRotateRange(angle)){
-		return SMALL_ROTATE;
 	}
 	if (inPIDRange(angle)){
 		return PID;
@@ -172,16 +161,6 @@ void SetMotorState(int targetAngle) {
 			motorCMD.pulseR = LoadToPulse(FULL_LOAD);
     		motorCMD.pulseL = LoadToPulse(FULL_LOAD);
     		break;
-    	case SMALL_ROTATE:
-    		if (targetAngle > 0){
-				motorCMD.pulseR = LoadToPulse(FULL_LOAD / 2);
-	    		motorCMD.pulseL = LoadToPulse(-FULL_LOAD);
-			}
-			else{
-				motorCMD.pulseR = LoadToPulse(-FULL_LOAD);
-	    		motorCMD.pulseL = LoadToPulse(FULL_LOAD / 2);
-			}
-			break;
 		case PID:
 			int output = PIDFilter(targetAngle, prevType);
 			if (output == -1){
