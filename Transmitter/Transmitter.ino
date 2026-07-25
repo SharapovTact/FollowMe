@@ -10,6 +10,3 @@ void setup() {
   OCR1A = 160; 
   TCCR1B |= (1 << CS10);
 }
-
-void loop() {
-}
