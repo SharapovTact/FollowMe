@@ -117,62 +117,71 @@ MoveType SetMoveType(const int angle) {
 	return NONE;
 }
 
-int PIDRotationFilter(const int angle) {
-	static float integralError = 0;
+int PIDFilter(const int angle, MoveType prevType){
+	static float integral = 0;
 	static uint64_t prevTime = 0;
 	static int prevError = 0;
+	if (prevType != PID){
+		integral = 0;
+		prevError = 0;
+	}
 	if (prevTime == 0) {
 		prevTime = GetTimeUs();
 		prevError = angle;
-		return 0;
+		return -1;
 	}
 	uint64_t time = GetTimeUs();
 	int error = angle;
-    float deltaTime = (time - prevTime) / 1000000.0f;
+    float deltaTime = (float)(time - prevTime) / 1000000.0f;
     if (deltaTime <= 0.0f) {
         deltaTime = 0.001f;
     }
 	
 	int proportial = error;
-	integralError += error * deltaTime;
-	float derivative = (error - prevError) / deltaTime;
-	float output = PID_GAIN_P * proportial + PID_GAIN_I * integralError + PID_GAIN_D * derivative;
+	integral += (float)error * deltaTime;
+	float derivative = ((float)error - prevError) / (float)deltaTime;
+	float output = PID_GAIN_P * proportial + PID_GAIN_I * integral + PID_GAIN_D * derivative;
 	
 	prevTime = time;
 	prevError = error;
-	
-	if (output > FULL_LOAD) {
+    
+    if (output > FULL_LOAD) {
 		output = FULL_LOAD;
 	}
     if (output < -FULL_LOAD) {
 		output = -FULL_LOAD;
-	}
+    }
     return output;
 }
 
 void SetMotorState(int targetAngle) {
 	MoveType type = NONE;
+	static MoveType prevType = NONE;
 	
 	MotorCMD motorCMD;
 	type = SetMoveType(targetAngle);
 	motorCMD.repeatCounter = 0;
-	int output;
 	
 	switch (type){
 		case FORWARD:
-			output = FULL_LOAD;
-			motorCMD.pulseR = LoadToPulse(output);
-    		motorCMD.pulseL = LoadToPulse(output);
+			motorCMD.pulseR = LoadToPulse(FULL_LOAD);
+    		motorCMD.pulseL = LoadToPulse(FULL_LOAD);
     		break;
 		case PID:
-			output = PIDRotationFilter(targetAngle);
+			int output = PIDFilter(targetAngle, prevType);
+			if (output == -1){
+				prevType = type;
+				return;
+			}
 			motorCMD.pulseR = LoadToPulse(output);
     		motorCMD.pulseL = LoadToPulse(-output);
     		break;
     	default:
     		return;
 	}
+	prevType = type;
 	xQueueOverwrite(motorQueue, &motorCMD);
+    
 }
 
 void MotorsInit(void) {
