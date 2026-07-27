@@ -27,8 +27,8 @@
 #define MAX_REPEAT_COUNT       5
 #define DELAY_MS_MOTOR         100
 #define FORWARD_RANGE_DEG      10
-#define PID_GAIN_P             2.5f
-#define PID_GAIN_I             1.0f
+#define PID_GAIN_P             3.0f
+#define PID_GAIN_I             0.5f
 #define PID_GAIN_D             0
 
 typedef enum {
@@ -107,7 +107,7 @@ bool InForwardRange(const int angle) {
 bool InPIDRange(const int angle) {
 	return !InForwardRange(angle);
 }
-MoveType SetMoveType(const int angle, MoveType prevType) {
+MoveType SetMoveType(const int angle) {
     if (InForwardRange(angle)) {
 		return FORWARD;
 	}
@@ -117,18 +117,14 @@ MoveType SetMoveType(const int angle, MoveType prevType) {
 	return NONE;
 }
 
-int PIDRotationFilter(const int angle, MoveType prevType) {
+int PIDRotationFilter(const int angle) {
 	static float integralError = 0;
 	static uint64_t prevTime = 0;
 	static int prevError = 0;
-	if (prevType != PID) {
-		integralError = 0;
-		prevError = 0;
-	}
 	if (prevTime == 0) {
 		prevTime = GetTimeUs();
 		prevError = angle;
-		return -1;
+		return 0;
 	}
 	uint64_t time = GetTimeUs();
 	int error = angle;
@@ -140,40 +136,42 @@ int PIDRotationFilter(const int angle, MoveType prevType) {
 	int proportial = error;
 	integralError += error * deltaTime;
 	float derivative = (error - prevError) / deltaTime;
-	int output = abs(PID_GAIN_P * proportial + PID_GAIN_I * integralError + PID_GAIN_D * derivative);
+	float output = PID_GAIN_P * proportial + PID_GAIN_I * integralError + PID_GAIN_D * derivative;
 	
 	prevTime = time;
 	prevError = error;
 	
+	if (output > FULL_LOAD) {
+		output = FULL_LOAD;
+	}
+    if (output < -FULL_LOAD) {
+		output = -FULL_LOAD;
+	}
     return output;
 }
 
 void SetMotorState(int targetAngle) {
 	MoveType type = NONE;
-	static MoveType prevType = NONE;
 	
 	MotorCMD motorCMD;
-	type = SetMoveType(targetAngle, prevType);
+	type = SetMoveType(targetAngle);
 	motorCMD.repeatCounter = 0;
+	int output;
 	
 	switch (type){
 		case FORWARD:
-			motorCMD.pulseR = LoadToPulse(FULL_LOAD);
-    		motorCMD.pulseL = LoadToPulse(FULL_LOAD);
+			output = FULL_LOAD;
+			motorCMD.pulseR = LoadToPulse(output);
+    		motorCMD.pulseL = LoadToPulse(output);
     		break;
 		case PID:
-			int output = PIDRotationFilter(targetAngle, prevType);
-			if (output == -1){
-				prevType = type;
-				return;
-			}
+			output = PIDRotationFilter(targetAngle);
 			motorCMD.pulseR = LoadToPulse(output);
     		motorCMD.pulseL = LoadToPulse(-output);
     		break;
     	default:
     		return;
 	}
-	prevType = type;
 	xQueueOverwrite(motorQueue, &motorCMD);
 }
 

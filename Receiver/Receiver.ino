@@ -38,8 +38,8 @@ double CutInvalidSinValue(const double sinVal) {
     return sinVal;
 }
 
-int CalcAngle(int deltaTimeus) {
-	double deltaTimeS = (double)deltaTimeus / 1000000;
+int CalcAngle(int deltaTimeUs) {
+	double deltaTimeS = (double)deltaTimeUs / 1000000;
 	double sinVal = (deltaTimeS * SPEED_OF_SOUND_MS) / DIST_BETWEEN_SENSORS_M;
 	sinVal = CutInvalidSinValue(sinVal);
     double angleRad = asin(sinVal);
@@ -74,8 +74,8 @@ void loop() {
         interrupts();
     }
     if (leftFree == false && rightFree == false) {
-        int32_t deltaus = rightTime - leftTime;
-        int angle = CalcAngle(deltaus);
+        int32_t deltaUs = rightTime - leftTime;
+        int angle = CalcAngle(deltaUs);
         usRight = 0;
         usLeft = 0;
         Serial.write(UART_MARKER);
