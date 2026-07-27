@@ -18,6 +18,7 @@
 #define TIM_RESOLUTION_HZ      1000000
 #define TIM_ACCOUNT_LIMIT      20000
 #define US_PER_SEC             1000000L
+#define EPSILON_FLOAT          0.001f
 
 //PULSE_TO_LOAD
 #define PULSE_STOP		       1500
@@ -29,14 +30,19 @@
 #define DELAY_MS_MOTOR         100
 #define FORWARD_RANGE_DEG      10
 #define PID_GAIN_P             3.0f
-#define PID_GAIN_I             0.5f
+#define PID_GAIN_I             3.0f
 #define PID_GAIN_D             0
+#define ACCELERATION_MOVE      1
 
-typedef enum {
-	NONE,
-	PID,
-	FORWARD,
-} MoveType;
+typedef struct {
+	int rotationalSpeed;
+	float accumRotationalSpeed;
+	int accumMoveSpeed;
+	
+	int angle;
+	uint64_t prevTime;
+	float deltaTime;
+} PIDContext;
 
 typedef struct {
 	int pulseR;
@@ -105,84 +111,101 @@ bool IsForwardDirection(const int angle) {
 	return abs(angle) <= FORWARD_RANGE_DEG / 2;
 }
 
-bool IsPIDRange(const int angle) {
-	return !IsForwardDirection(angle);
-}
-MoveType SetMoveType(const int angle) {
-    if (IsForwardDirection(angle)) {
-		return FORWARD;
-	}
-	if (IsPIDRange(angle)) {
-		return PID;
-	}
-	return NONE;
-}
-
-int PIDFilter(const int angle, MoveType prevType){
-	static float integral = 0;
-	static uint64_t prevTime = 0;
-	static int prevError = 0;
-	if (prevType != PID){
-		integral = 0;
-		prevError = 0;
-	}
-	if (prevTime == 0) {
-		prevTime = GetTimeUs();
-		prevError = angle;
-		return -1;
-	}
-	uint64_t time = GetTimeUs();
-	int error = angle;
-    float deltaTime = (float)(time - prevTime) / US_PER_SEC;
-    if (deltaTime <= 0.0f) {
-        deltaTime = 0.001f;
-    }
-	
-	int proportial = error;
-	integral += (float)error * deltaTime;
-	float derivative = ((float)error - prevError) / (float)deltaTime;
-	float output = PID_GAIN_P * proportial + PID_GAIN_I * integral + PID_GAIN_D * derivative;
-	
-	prevTime = time;
-	prevError = error;
-    
-    if (output > FULL_LOAD) {
-		output = FULL_LOAD;
+int FilterOutputValue(int output){
+	if (output > FULL_LOAD) {
+		return FULL_LOAD;
 	}
     if (output < -FULL_LOAD) {
-		output = -FULL_LOAD;
+		return -FULL_LOAD;
     }
     return output;
 }
 
-void SetMotorState(int targetAngle) {
-	MoveType type = NONE;
-	static MoveType prevType = NONE;
-	
-	MotorCMD motorCMD;
-	type = SetMoveType(targetAngle);
-	motorCMD.repeatCounter = 0;
-	
-	switch (type){
-		case FORWARD:
-			motorCMD.pulseR = LoadToPulse(FULL_LOAD);
-    		motorCMD.pulseL = LoadToPulse(FULL_LOAD);
-    		break;
-		case PID:
-			int output = PIDFilter(targetAngle, prevType);
-			if (output == -1){
-				prevType = type;
-				return;
-			}
-			motorCMD.pulseR = LoadToPulse(output);
-    		motorCMD.pulseL = LoadToPulse(-output);
-    		break;
-    	default:
-    		return;
+static void InitPIDConfig(PIDContext *context, bool *isInitialized) {
+	context->accumRotationalSpeed = 0;
+	context->accumMoveSpeed = 0;
+	context->prevTime = GetTimeUs();
+	*isInitialized = true;
+}
+
+float FilterTime(float time) {
+	if (time <= EPSILON_FLOAT) {
+        return EPSILON_FLOAT;
+    }
+    return time;
+}
+
+void CalcRotationalSpeed(int *rotationalSpeed, const int *angle) {
+	*rotationalSpeed = *angle;
+	return;
+}
+
+void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, const float *deltaTime) {
+	if (!IsForwardDirection(*angle)) {
+		*accumRotationalSpeed += (float)*angle * *deltaTime;
+	} 
+	else{
+		*accumRotationalSpeed = 0;	
 	}
-	prevType = type;
+	return;
+}
+
+void CalcAccumMoveSpeed(int *accumMoveSpeed, const int *angle) {
+	if (IsForwardDirection(*angle)) {
+		if (*accumMoveSpeed > FULL_LOAD) {
+			return;
+		}
+		*accumMoveSpeed += ACCELERATION_MOVE;
+	}
+	else {
+		if (*accumMoveSpeed > 0){
+			*accumMoveSpeed -= ACCELERATION_MOVE;
+		}
+	}
+	return;
+}
+
+void PIDContextUpdate(PIDContext *context, const int angle) {
+	uint64_t time = GetTimeUs();
+	context->deltaTime = FilterTime((float)(time - context->prevTime) / US_PER_SEC);
+	context->angle = angle;
+	context->rotationalSpeed = angle;
+	context->prevTime = time;
+}
+
+int PIDFilter(const int angle) {
+	static bool isInitialized = false;
+	static PIDContext context;
+	if (!isInitialized){
+		InitPIDConfig(&context, &isInitialized);
+	}
+	
+	PIDContextUpdate(&context, angle);
+	
+	CalcRotationalSpeed(&context.rotationalSpeed, &angle);
+	CalcAccumRotationalSpeed(&context.accumRotationalSpeed, &angle, &context.deltaTime);
+	CalcAccumMoveSpeed(&context.accumMoveSpeed, &angle);
+	
+	int output = PID_GAIN_P * context.rotationalSpeed + 
+				 PID_GAIN_I * context.accumRotationalSpeed + 
+				   				context.accumMoveSpeed;
+    return FilterOutputValue(output);
+}
+
+void SetMotorState(int targetAngle) {
+	MotorCMD motorCMD;
+	motorCMD.repeatCounter = 0;
+	int output = PIDFilter(targetAngle);
+	if (IsForwardDirection(targetAngle)) {
+		output = abs(output);
+		motorCMD.pulseR = LoadToPulse(output);
+    	motorCMD.pulseL = LoadToPulse(output);
+	}
+	else {
+		motorCMD.pulseR = LoadToPulse(output);
+    	motorCMD.pulseL = LoadToPulse(-output);
+	}
 	xQueueOverwrite(motorQueue, &motorCMD);
-    
 }
 
 void MotorsStart(void) {

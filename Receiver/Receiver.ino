@@ -15,11 +15,6 @@ volatile uint32_t usLeft;
 bool leftFree = true;
 bool rightFree = true;
 
-typedef struct {
-	int32_t us;
-	bool sign;
-} DeltaTime;
-
 void HandleLeftSensor() {
     usLeft = micros();
 }
