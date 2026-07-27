@@ -25,10 +25,12 @@
 #define PULSE_WORK_RANGE       500
 
 //MOVEMENT
+#define MAX_MOVE_SPEED         60
 #define FULL_LOAD              100
 #define MAX_REPEAT_COUNT       5
 #define DELAY_MS_MOTOR         100
-#define FORWARD_RANGE_DEG      10
+#define FORWARD_RANGE_DEG      4
+#define MOVEMENT_RANGE_DEG     10
 #define PID_GAIN_P             3.0f
 #define PID_GAIN_I             3.0f
 #define PID_GAIN_D             0
@@ -49,6 +51,11 @@ typedef struct {
 	int pulseL;
 	int repeatCounter;
 } MotorCMD;
+
+typedef struct {
+	int rotation;
+	int movement;
+} PIDLoad;
 
 static QueueHandle_t motorQueue = NULL;
 static TaskHandle_t MotorTaskHandler = NULL;
@@ -111,6 +118,10 @@ bool IsForwardDirection(const int angle) {
 	return abs(angle) <= FORWARD_RANGE_DEG / 2;
 }
 
+bool IsMovementDirection(const int angle) {
+	return abs(angle) <= MOVEMENT_RANGE_DEG / 2;
+}
+
 int FilterOutputValue(int output){
 	if (output > FULL_LOAD) {
 		return FULL_LOAD;
@@ -142,7 +153,9 @@ void CalcRotationalSpeed(int *rotationalSpeed, const int *angle) {
 
 void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, const float *deltaTime) {
 	if (!IsForwardDirection(*angle)) {
-		*accumRotationalSpeed += (float)*angle * *deltaTime;
+		if (*accumRotationalSpeed < FULL_LOAD){
+			*accumRotationalSpeed += (float)*angle * *deltaTime;
+		}
 	} 
 	else{
 		*accumRotationalSpeed = 0;	
@@ -151,11 +164,10 @@ void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, con
 }
 
 void CalcAccumMoveSpeed(int *accumMoveSpeed, const int *angle) {
-	if (IsForwardDirection(*angle)) {
-		if (*accumMoveSpeed > FULL_LOAD) {
-			return;
+	if (IsMovementDirection(*angle)) {
+		if (*accumMoveSpeed < MAX_MOVE_SPEED) {
+			*accumMoveSpeed += ACCELERATION_MOVE;
 		}
-		*accumMoveSpeed += ACCELERATION_MOVE;
 	}
 	else {
 		if (*accumMoveSpeed > 0){
@@ -173,7 +185,8 @@ void PIDContextUpdate(PIDContext *context, const int angle) {
 	context->prevTime = time;
 }
 
-int PIDFilter(const int angle) {
+PIDLoad PIDFilter(const int angle) {
+	PIDLoad load;
 	static bool isInitialized = false;
 	static PIDContext context;
 	if (!isInitialized){
@@ -186,25 +199,26 @@ int PIDFilter(const int angle) {
 	CalcAccumRotationalSpeed(&context.accumRotationalSpeed, &angle, &context.deltaTime);
 	CalcAccumMoveSpeed(&context.accumMoveSpeed, &angle);
 	
-	int output = PID_GAIN_P * context.rotationalSpeed + 
-				 PID_GAIN_I * context.accumRotationalSpeed + 
-				   				context.accumMoveSpeed;
-    return FilterOutputValue(output);
+	load.rotation = PID_GAIN_P * context.rotationalSpeed +     //TODO Надо вынести скорость движения и скорость поворота + ограничить
+				    PID_GAIN_I * context.accumRotationalSpeed; // скорость движения до 70%. Таким образом контроллировать доворот на одной гусле
+	load.movement = context.accumMoveSpeed;
+	return load;
 }
 
 void SetMotorState(int targetAngle) {
 	MotorCMD motorCMD;
 	motorCMD.repeatCounter = 0;
-	int output = PIDFilter(targetAngle);
-	if (IsForwardDirection(targetAngle)) {
-		output = abs(output);
-		motorCMD.pulseR = LoadToPulse(output);
-    	motorCMD.pulseL = LoadToPulse(output);
+	PIDLoad load = PIDFilter(targetAngle);
+	int leftLoad = load.movement;
+	int rightLoad = load.movement;
+	if (load.rotation >= 0) {
+		rightLoad += load.rotation;
 	}
 	else {
-		motorCMD.pulseR = LoadToPulse(output);
-    	motorCMD.pulseL = LoadToPulse(-output);
+		leftLoad += load.rotation;
 	}
+	motorCMD.pulseR = LoadToPulse(rightLoad);
+	motorCMD.pulseL = LoadToPulse(leftLoad);
 	xQueueOverwrite(motorQueue, &motorCMD);
 }
 
