@@ -54,7 +54,7 @@ static void TimerInit(mcpwm_timer_handle_t *TIM, mcpwm_timer_config_t *CNFG) {
     CNFG->group_id = 0;
     CNFG->clk_src = MCPWM_TIMER_CLK_SRC_DEFAULT;
     CNFG->resolution_hz = TIM_RESOLUTION_HZ;
-    CNFG->period_ticks = TIM_MAX_PERIOD_TICKS;
+    CNFG->period_ticks = TIM_ACCOUNT_LIMIT;
     CNFG->count_mode = MCPWM_TIMER_COUNT_MODE_UP;
     mcpwm_new_timer(CNFG, TIM);
 }
