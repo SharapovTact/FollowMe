@@ -1,7 +1,7 @@
 #ifndef ULTRASONIC_COMMUNICATION_H
 #define ULTRASONIC_COMMUNICATION_H
 
-void UltrasonicCommunicationInit(void);
+void UltrasonicCommunicationStart(void);
 void UltrasonicCommunicationReceiverTask(void *arg);
 
 #endif

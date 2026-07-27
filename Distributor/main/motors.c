@@ -1,13 +1,13 @@
 #include "motors.h"
-
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
 #include "movingConfig.h"
-#include "driver/mcpwm_prelude.h"
-#include "freertos/projdefs.h"
-#include "hal/gpio_types.h"
-#include "driver/gpio.h"
-#include "freertos/queue.h"
+
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <driver/mcpwm_prelude.h>
+#include <freertos/projdefs.h>
+#include <hal/gpio_types.h>
+#include <driver/gpio.h>
+#include <freertos/queue.h>
 #include <sys/time.h>
 
 //INIT
@@ -16,7 +16,8 @@
 #define MOTOR_TASK_STACK_SIZE  2048
 #define MOTOR_TASK_PRIORITY    5
 #define TIM_RESOLUTION_HZ      1000000
-#define TIM_MAX_PERIOD_TICKS   20000
+#define TIM_ACCOUNT_LIMIT      20000
+#define US_PER_SEC             1000000L
 
 //PULSE_TO_LOAD
 #define PULSE_STOP		       1500
@@ -97,21 +98,21 @@ int LoadToPulse(const int load) {
 int64_t GetTimeUs() {
     struct timeval tv;
     gettimeofday(&tv, NULL);
-    return (int64_t)tv.tv_sec * 1000000L + (int64_t)tv.tv_usec;
+    return (int64_t)tv.tv_sec * US_PER_SEC + (int64_t)tv.tv_usec;
 }
 
-bool InForwardRange(const int angle) {
+bool IsForwardDirection(const int angle) {
 	return abs(angle) <= FORWARD_RANGE_DEG / 2;
 }
 
-bool InPIDRange(const int angle) {
-	return !InForwardRange(angle);
+bool IsPIDRange(const int angle) {
+	return !IsForwardDirection(angle);
 }
 MoveType SetMoveType(const int angle) {
-    if (InForwardRange(angle)) {
+    if (IsForwardDirection(angle)) {
 		return FORWARD;
 	}
-	if (InPIDRange(angle)) {
+	if (IsPIDRange(angle)) {
 		return PID;
 	}
 	return NONE;
@@ -132,7 +133,7 @@ int PIDFilter(const int angle, MoveType prevType){
 	}
 	uint64_t time = GetTimeUs();
 	int error = angle;
-    float deltaTime = (float)(time - prevTime) / 1000000.0f;
+    float deltaTime = (float)(time - prevTime) / US_PER_SEC;
     if (deltaTime <= 0.0f) {
         deltaTime = 0.001f;
     }
@@ -184,7 +185,7 @@ void SetMotorState(int targetAngle) {
     
 }
 
-void MotorsInit(void) {
+void MotorsStart(void) {
 	motorQueue = xQueueCreate(1, sizeof(MotorCMD));
 	
     xTaskCreate(MotorTask,

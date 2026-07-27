@@ -1,10 +1,10 @@
 #include "ultrasonicCommunication.h"
 
-#include "freertos/FreeRTOS.h"
-#include "freertos/task.h"
-#include "driver/uart.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/task.h>
+#include <driver/uart.h>
+#include <string.h>
 #include "motors.h"
-#include "string.h"
 
 #define RX_TASK_STACK_SIZE   4096
 #define RX_TASK_PRIORITY     5
@@ -23,7 +23,7 @@
 #define DATA_LENGTH          2
 #define ANGLE_CORRECTION_DEG 90
 
-void UltrasonicCommunicationInit(void) {
+void UltrasonicCommunicationStart(void) {
     const uart_config_t uartConfig = {
         .baud_rate = UART_BAUD_RATE,
         .data_bits = UART_DATA_8_BITS,
