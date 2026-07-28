@@ -9,6 +9,7 @@
 #include <driver/gpio.h>
 #include <freertos/queue.h>
 #include <sys/time.h>
+#include <esp_log.h>
 
 //INIT
 #define MOTOR_L_GPIO           18
@@ -25,14 +26,14 @@
 #define PULSE_WORK_RANGE       500
 
 //MOVEMENT
-#define MAX_MOVE_SPEED         60
+#define MAX_MOVE_SPEED         80
 #define FULL_LOAD              100
 #define MAX_REPEAT_COUNT       5
 #define DELAY_MS_MOTOR         100
 #define FORWARD_RANGE_DEG      4
 #define MOVEMENT_RANGE_DEG     10
-#define PID_GAIN_P             3.0f
-#define PID_GAIN_I             3.0f
+#define PID_GAIN_P             6.0f
+#define PID_GAIN_I             0.05f
 #define PID_GAIN_D             0
 #define ACCELERATION_MOVE      1
 
@@ -157,7 +158,7 @@ void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, con
 			*accumRotationalSpeed += (float)*angle * *deltaTime;
 		}
 	} 
-	else{
+	else {
 		*accumRotationalSpeed = 0;	
 	}
 	return;
@@ -174,6 +175,7 @@ void CalcAccumMoveSpeed(int *accumMoveSpeed, const int *angle) {
 			*accumMoveSpeed -= ACCELERATION_MOVE;
 		}
 	}
+	ESP_LOGI("MOTORS", "Move speed: %d", *accumMoveSpeed);
 	return;
 }
 
@@ -199,9 +201,9 @@ PIDLoad PIDFilter(const int angle) {
 	CalcAccumRotationalSpeed(&context.accumRotationalSpeed, &angle, &context.deltaTime);
 	CalcAccumMoveSpeed(&context.accumMoveSpeed, &angle);
 	
-	load.rotation = PID_GAIN_P * context.rotationalSpeed +     //TODO Надо вынести скорость движения и скорость поворота + ограничить
-				    PID_GAIN_I * context.accumRotationalSpeed; // скорость движения до 70%. Таким образом контроллировать доворот на одной гусле
-	load.movement = context.accumMoveSpeed;
+	load.rotation = FilterOutputValue(PID_GAIN_P * context.rotationalSpeed +
+				    						  PID_GAIN_I * context.accumRotationalSpeed);
+	load.movement = FilterOutputValue(context.accumMoveSpeed);
 	return load;
 }
 
@@ -213,12 +215,17 @@ void SetMotorState(int targetAngle) {
 	int rightLoad = load.movement;
 	if (load.rotation >= 0) {
 		rightLoad += load.rotation;
+		leftLoad -= load.rotation;
 	}
 	else {
-		leftLoad += load.rotation;
+		leftLoad += abs(load.rotation);
+		rightLoad -= abs(load.rotation);
 	}
 	motorCMD.pulseR = LoadToPulse(rightLoad);
 	motorCMD.pulseL = LoadToPulse(leftLoad);
+	ESP_LOGI("MOTORS", "Target angle: %d", targetAngle);
+	ESP_LOGI("MOTORS", "Right: %d", rightLoad);
+	ESP_LOGI("MOTORS", "Left: %d", leftLoad);
 	xQueueOverwrite(motorQueue, &motorCMD);
 }
 
