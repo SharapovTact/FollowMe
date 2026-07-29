@@ -26,14 +26,15 @@
 #define PULSE_WORK_RANGE       500
 
 //MOVEMENT
-#define MAX_MOVE_SPEED         80
+#define MAX_MOVE_SPEED         100
 #define FULL_LOAD              100
 #define MAX_REPEAT_COUNT       5
+#define START_ROTATION_LOAD    40
 #define DELAY_MS_MOTOR         100
-#define FORWARD_RANGE_DEG      4
-#define MOVEMENT_RANGE_DEG     10
-#define PID_GAIN_P             6.0f
-#define PID_GAIN_I             0.05f
+#define FORWARD_RANGE_DEG      6
+#define MOVEMENT_RANGE_DEG     60
+#define PID_GAIN_P             2.0f
+#define PID_GAIN_I             1.0f
 #define PID_GAIN_D             0
 #define ACCELERATION_MOVE      1
 
@@ -123,7 +124,7 @@ bool IsMovementDirection(const int angle) {
 	return abs(angle) <= MOVEMENT_RANGE_DEG / 2;
 }
 
-int FilterOutputValue(int output){
+int FilterLoadValue(int output){
 	if (output > FULL_LOAD) {
 		return FULL_LOAD;
 	}
@@ -159,7 +160,13 @@ void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, con
 		}
 	} 
 	else {
-		*accumRotationalSpeed = 0;	
+		if (*accumRotationalSpeed > 0){
+			*accumRotationalSpeed -= ACCELERATION_MOVE;	
+		}
+		else if (*accumRotationalSpeed < 0){
+			*accumRotationalSpeed += ACCELERATION_MOVE;
+		}
+		
 	}
 	return;
 }
@@ -201,9 +208,9 @@ PIDLoad PIDFilter(const int angle) {
 	CalcAccumRotationalSpeed(&context.accumRotationalSpeed, &angle, &context.deltaTime);
 	CalcAccumMoveSpeed(&context.accumMoveSpeed, &angle);
 	
-	load.rotation = FilterOutputValue(PID_GAIN_P * context.rotationalSpeed +
-				    						  PID_GAIN_I * context.accumRotationalSpeed);
-	load.movement = FilterOutputValue(context.accumMoveSpeed);
+	load.rotation = abs(FilterLoadValue(PID_GAIN_P * context.rotationalSpeed +
+				    						  PID_GAIN_I * context.accumRotationalSpeed));
+	load.movement = abs(FilterLoadValue(context.accumMoveSpeed));
 	return load;
 }
 
@@ -213,14 +220,28 @@ void SetMotorState(int targetAngle) {
 	PIDLoad load = PIDFilter(targetAngle);
 	int leftLoad = load.movement;
 	int rightLoad = load.movement;
-	if (load.rotation >= 0) {
-		rightLoad += load.rotation;
-		leftLoad -= load.rotation;
+	if (!IsMovementDirection(targetAngle)) {
+		if (targetAngle > 0) {
+			rightLoad += load.rotation;
+			leftLoad = 0;
+		}
+		else {
+			leftLoad += load.rotation;
+			rightLoad = 0;
+		}
 	}
-	else {
-		leftLoad += abs(load.rotation);
-		rightLoad -= abs(load.rotation);
+	else if (!IsForwardDirection(targetAngle)){
+		if (targetAngle > 0) {
+			rightLoad += load.rotation;
+			leftLoad -= load.movement / 2;
+		}
+		else {
+			leftLoad += load.rotation;
+			rightLoad -= load.movement / 2;
+		}
 	}
+	rightLoad = FilterLoadValue(rightLoad);
+	leftLoad = FilterLoadValue(leftLoad);
 	motorCMD.pulseR = LoadToPulse(rightLoad);
 	motorCMD.pulseL = LoadToPulse(leftLoad);
 	ESP_LOGI("MOTORS", "Target angle: %d", targetAngle);
