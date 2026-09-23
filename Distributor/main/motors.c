@@ -1,5 +1,5 @@
 #include "motors.h"
-#include "movingConfig.h"
+#include "movementControl.h"
 
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -18,46 +18,20 @@
 #define MOTOR_TASK_PRIORITY    5
 #define TIM_RESOLUTION_HZ      1000000
 #define TIM_ACCOUNT_LIMIT      20000
-#define US_PER_SEC             1000000L
-#define EPSILON_FLOAT          0.001f
 
 //PULSE_TO_LOAD
 #define PULSE_STOP		       1500
 #define PULSE_WORK_RANGE       500
 
 //MOVEMENT
-#define MAX_MOVE_SPEED         100
-#define FULL_LOAD              100
 #define MAX_REPEAT_COUNT       5
-#define START_ROTATION_LOAD    40
 #define DELAY_MS_MOTOR         100
-#define FORWARD_RANGE_DEG      6
-#define MOVEMENT_RANGE_DEG     60
-#define PID_GAIN_P             2.0f
-#define PID_GAIN_I             1.0f
-#define PID_GAIN_D             0
-#define ACCELERATION_MOVE      1
-
-typedef struct {
-	int rotationalSpeed;
-	float accumRotationalSpeed;
-	int accumMoveSpeed;
-	
-	int angle;
-	uint64_t prevTime;
-	float deltaTime;
-} PIDContext;
 
 typedef struct {
 	int pulseR;
 	int pulseL;
 	int repeatCounter;
 } MotorCMD;
-
-typedef struct {
-	int rotation;
-	int movement;
-} PIDLoad;
 
 static QueueHandle_t motorQueue = NULL;
 static TaskHandle_t MotorTaskHandler = NULL;
@@ -110,114 +84,10 @@ int LoadToPulse(const int load) {
 	return (k * load + b);
 }
 
-int64_t GetTimeUs() {
-    struct timeval tv;
-    gettimeofday(&tv, NULL);
-    return (int64_t)tv.tv_sec * US_PER_SEC + (int64_t)tv.tv_usec;
-}
-
-bool IsForwardDirection(const int angle) {
-	return abs(angle) <= FORWARD_RANGE_DEG / 2;
-}
-
-bool IsMovementDirection(const int angle) {
-	return abs(angle) <= MOVEMENT_RANGE_DEG / 2;
-}
-
-int FilterLoadValue(int output){
-	if (output > FULL_LOAD) {
-		return FULL_LOAD;
-	}
-    if (output < -FULL_LOAD) {
-		return -FULL_LOAD;
-    }
-    return output;
-}
-
-static void InitPIDConfig(PIDContext *context, bool *isInitialized) {
-	context->accumRotationalSpeed = 0;
-	context->accumMoveSpeed = 0;
-	context->prevTime = GetTimeUs();
-	*isInitialized = true;
-}
-
-float FilterTime(float time) {
-	if (time <= EPSILON_FLOAT) {
-        return EPSILON_FLOAT;
-    }
-    return time;
-}
-
-void CalcRotationalSpeed(int *rotationalSpeed, const int *angle) {
-	*rotationalSpeed = *angle;
-	return;
-}
-
-void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, const float *deltaTime) {
-	if (!IsForwardDirection(*angle)) {
-		if (*accumRotationalSpeed < FULL_LOAD){
-			*accumRotationalSpeed += (float)*angle * *deltaTime;
-		}
-	} 
-	else {
-		if (*accumRotationalSpeed > 0){
-			*accumRotationalSpeed -= ACCELERATION_MOVE;	
-		}
-		else if (*accumRotationalSpeed < 0){
-			*accumRotationalSpeed += ACCELERATION_MOVE;
-		}
-		
-	}
-	return;
-}
-
-void CalcAccumMoveSpeed(int *accumMoveSpeed, const int *angle) {
-	if (IsMovementDirection(*angle)) {
-		if (*accumMoveSpeed < MAX_MOVE_SPEED) {
-			*accumMoveSpeed += ACCELERATION_MOVE;
-		}
-	}
-	else {
-		if (*accumMoveSpeed > 0){
-			*accumMoveSpeed -= ACCELERATION_MOVE;
-		}
-	}
-	ESP_LOGI("MOTORS", "Move speed: %d", *accumMoveSpeed);
-	return;
-}
-
-void PIDContextUpdate(PIDContext *context, const int angle) {
-	uint64_t time = GetTimeUs();
-	context->deltaTime = FilterTime((float)(time - context->prevTime) / US_PER_SEC);
-	context->angle = angle;
-	context->rotationalSpeed = angle;
-	context->prevTime = time;
-}
-
-PIDLoad PIDFilter(const int angle) {
-	PIDLoad load;
-	static bool isInitialized = false;
-	static PIDContext context;
-	if (!isInitialized){
-		InitPIDConfig(&context, &isInitialized);
-	}
-	
-	PIDContextUpdate(&context, angle);
-	
-	CalcRotationalSpeed(&context.rotationalSpeed, &angle);
-	CalcAccumRotationalSpeed(&context.accumRotationalSpeed, &angle, &context.deltaTime);
-	CalcAccumMoveSpeed(&context.accumMoveSpeed, &angle);
-	
-	load.rotation = abs(FilterLoadValue(PID_GAIN_P * context.rotationalSpeed +
-				    						  PID_GAIN_I * context.accumRotationalSpeed));
-	load.movement = abs(FilterLoadValue(context.accumMoveSpeed));
-	return load;
-}
-
 void SetMotorState(int targetAngle) {
 	MotorCMD motorCMD;
 	motorCMD.repeatCounter = 0;
-	PIDLoad load = PIDFilter(targetAngle);
+	MotorLoad load = GetLoadForMovement(targetAngle);
 	int leftLoad = load.movement;
 	int rightLoad = load.movement;
 	if (!IsMovementDirection(targetAngle)) {
@@ -233,15 +103,15 @@ void SetMotorState(int targetAngle) {
 	else if (!IsForwardDirection(targetAngle)){
 		if (targetAngle > 0) {
 			rightLoad += load.rotation;
-			leftLoad -= load.movement / 2;
+			leftLoad -= load.movement;
 		}
 		else {
 			leftLoad += load.rotation;
-			rightLoad -= load.movement / 2;
+			rightLoad -= load.movement;
 		}
 	}
-	rightLoad = FilterLoadValue(rightLoad);
-	leftLoad = FilterLoadValue(leftLoad);
+	rightLoad = -FilterLoadValue(rightLoad);//TODO сделал инверсию
+	leftLoad = FilterLoadValue(leftLoad); 
 	motorCMD.pulseR = LoadToPulse(rightLoad);
 	motorCMD.pulseL = LoadToPulse(leftLoad);
 	ESP_LOGI("MOTORS", "Target angle: %d", targetAngle);

@@ -5,6 +5,7 @@
 #include <driver/uart.h>
 #include <string.h>
 #include "motors.h"
+#include <esp_log.h>
 
 #define RX_TASK_STACK_SIZE   4096
 #define RX_TASK_PRIORITY     5
@@ -56,6 +57,7 @@ bool IsValidData(uint8_t *data, const int *dataLength) {
 void ChangeMovingState(const uint8_t *data) {
 	const uint8_t angleByte = data[UART_ANGLE_POS];
 	const int angle = angleByte - ANGLE_CORRECTION_DEG;
+	 ESP_LOGD("MAIN", "ANGLE: %d", angle);
 	SetMotorState(angle);
 }
 
