@@ -120,6 +120,19 @@ void SetMotorState(int targetAngle) {
 	xQueueOverwrite(motorQueue, &motorCMD);
 }
 
+void MotorsDebugSpin(int leftPulse, int rightPulse)
+{
+    if (CMP_L == NULL || CMP_R == NULL) {
+        ESP_LOGW("MOTORS", "MotorsDebugSpin: PWM not initialized yet");
+        return;
+    }
+
+    mcpwm_comparator_set_compare_value(CMP_L, leftPulse);
+    mcpwm_comparator_set_compare_value(CMP_R, rightPulse);
+
+    ESP_LOGI("MOTORS", "Debug PWM: L=%d R=%d", leftPulse, rightPulse);
+}
+
 void MotorsStart(void) {
 	motorQueue = xQueueCreate(1, sizeof(MotorCMD));
 	

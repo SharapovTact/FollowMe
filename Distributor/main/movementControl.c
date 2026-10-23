@@ -9,9 +9,9 @@
 #include <sys/time.h>
 #include <esp_log.h>
 
-#define MAX_ROTATION_SPEED     60   // <-- ДОБАВЛЕНО: ограничение максимальной скорости поворота
-#define MAX_FORWARD_SPEED      60   // <-- ИЗМЕНЕНО: бывший MAX_MOVE_SPEED, ограничение движения вперёд
-#define FORWARD_RANGE_DEG      12
+#define MAX_ROTATION_SPEED     30
+#define MAX_FORWARD_SPEED      40
+#define FORWARD_RANGE_DEG      20
 #define MOVEMENT_RANGE_DEG     60
 #define PID_GAIN_P             2.0f
 #define PID_GAIN_I             1.0f
