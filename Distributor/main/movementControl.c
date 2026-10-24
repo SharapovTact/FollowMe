@@ -9,9 +9,9 @@
 #include <sys/time.h>
 #include <esp_log.h>
 
-#define MAX_ROTATION_SPEED     30
-#define MAX_FORWARD_SPEED      40
-#define FORWARD_RANGE_DEG      20
+#define MAX_ROTATION_SPEED     40
+#define MAX_FORWARD_SPEED      60
+#define FORWARD_RANGE_DEG      30
 #define MOVEMENT_RANGE_DEG     60
 #define PID_GAIN_P             2.0f
 #define PID_GAIN_I             1.0f
@@ -93,7 +93,7 @@ void CalcAccumRotationalSpeed(float *accumRotationalSpeed, const int *angle, con
 
 void CalcAccumMoveSpeed(int *accumMoveSpeed, const int *angle) {
 	if (IsMovementDirection(*angle)) {
-		if (*accumMoveSpeed < MAX_FORWARD_SPEED) {   // <-- ИЗМЕНЕНО: MAX_MOVE_SPEED -> MAX_FORWARD_SPEED
+		if (*accumMoveSpeed < MAX_FORWARD_SPEED) {
 			*accumMoveSpeed += ACCELERATION_MOVE;
 		}
 	}
@@ -128,7 +128,6 @@ MotorLoad GetLoadForMovement(const int angle) {
 	CalcAccumRotationalSpeed(&context.accumRotationalSpeed, &angle, &context.deltaTime);
 	CalcAccumMoveSpeed(&context.accumMoveSpeed, &angle);
 	
-	// Сначала вычисляем movementLoad, чтобы использовать его для ограничения rotationLoad
 	int movementLoad = abs(FilterLoadValue(context.accumMoveSpeed));
 	if (movementLoad > MAX_FORWARD_SPEED) {
 		movementLoad = MAX_FORWARD_SPEED;
@@ -141,9 +140,6 @@ MotorLoad GetLoadForMovement(const int angle) {
 		rotationLoad = MAX_ROTATION_SPEED;
 	}
 
-	// <-- ДОБАВЛЕНО: ограничение поворотной нагрузки с учётом сложения с движением
-	// Итоговая команда на мотор = movementLoad + rotationLoad.
-	// Чтобы сумма не превышала MAX_FORWARD_SPEED, уменьшаем rotationLoad.
 	if (movementLoad + rotationLoad > MAX_FORWARD_SPEED) {
 		rotationLoad = MAX_FORWARD_SPEED - movementLoad;
 		if (rotationLoad < 0) {
